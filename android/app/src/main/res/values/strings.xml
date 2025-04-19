@@ -1,3 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Place this file in android/app/src/main/res/values/strings.xml -->
 <resources>
-    <string name="app_name">BrainBitesMobileNew</string>
+    <string name="app_name">BrainBites</string>
+    <string name="accessibility_service_description">BrainBites uses this service for Strict Mode to monitor and manage your app time usage. It helps enforce time limits on designated apps, ensuring a balanced digital lifestyle.</string>
 </resources>

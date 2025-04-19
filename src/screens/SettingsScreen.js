@@ -1,23 +1,99 @@
 // src/screens/SettingsScreen.js
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, SafeAreaView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Switch, 
+  ScrollView, 
+  SafeAreaView, 
+  Platform,
+  Alert 
+} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TimerService from '../services/TimerService';
 import QuizService from '../services/QuizService';
+import StrictModeService from '../services/StrictModeService';
 
 const SettingsScreen = ({ navigation }) => {
   const [normalReward, setNormalReward] = useState(30); // Seconds for correct answer
   const [milestoneReward, setMilestoneReward] = useState(120); // Seconds for milestone
   const [showMascot, setShowMascot] = useState(true);
   const [soundsEnabled, setSoundsEnabled] = useState(true);
+  const [strictModeEnabled, setStrictModeEnabled] = useState(false);
+  const [accessibilityServiceEnabled, setAccessibilityServiceEnabled] = useState(false);
+  
+  useEffect(() => {
+    loadSettings();
+    
+    // Check accessibility service status on Android
+    if (Platform.OS === 'android') {
+      checkAccessibilityService();
+    }
+    
+    // Re-check when screen comes into focus
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (Platform.OS === 'android') {
+        checkAccessibilityService();
+      }
+      loadSettings();
+    });
+    
+    return unsubscribe;
+  }, [navigation]);
+  
+  const loadSettings = async () => {
+    try {
+      // Load mascot setting
+      const mascotEnabled = await AsyncStorage.getItem('brainbites_show_mascot');
+      if (mascotEnabled !== null) {
+        setShowMascot(mascotEnabled === 'true');
+      }
+      
+      // Load sounds setting
+      const sounds = await AsyncStorage.getItem('brainbites_sounds_enabled');
+      if (sounds !== null) {
+        setSoundsEnabled(sounds === 'true');
+      }
+      
+      // Load reward settings
+      const nReward = await AsyncStorage.getItem('brainbites_normal_reward');
+      if (nReward !== null) {
+        setNormalReward(parseInt(nReward, 10));
+      }
+      
+      const mReward = await AsyncStorage.getItem('brainbites_milestone_reward');
+      if (mReward !== null) {
+        setMilestoneReward(parseInt(mReward, 10));
+      }
+      
+      // Load strict mode setting (Android only)
+      if (Platform.OS === 'android') {
+        const strictMode = await AsyncStorage.getItem('brainbites_strict_mode');
+        setStrictModeEnabled(strictMode === 'true');
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  };
+  
+  const checkAccessibilityService = async () => {
+    try {
+      const isEnabled = await StrictModeService.isAccessibilityServiceEnabled();
+      setAccessibilityServiceEnabled(isEnabled);
+    } catch (error) {
+      console.error('Error checking accessibility service:', error);
+    }
+  };
   
   const handleClearProgress = async () => {
     try {
       // Display confirmation dialog
-      alert(
-        'Are you sure?',
-        'This will reset all your progress, time credits, and question history.',
+      Alert.alert(
+        'Reset All Progress',
+        'This will reset all your progress, time credits, and question history. This cannot be undone.',
         [
           {
             text: 'Cancel',
@@ -38,7 +114,7 @@ const SettingsScreen = ({ navigation }) => {
               
               // Show success message
               setTimeout(() => {
-                alert('All data has been reset.');
+                Alert.alert('Reset Complete', 'All data has been reset.');
               }, 500);
             },
           },
@@ -46,7 +122,7 @@ const SettingsScreen = ({ navigation }) => {
       );
     } catch (error) {
       console.error('Error clearing data:', error);
-      alert('Failed to reset data. Please try again.');
+      Alert.alert('Failed to reset data. Please try again.');
     }
   };
   
@@ -70,10 +146,34 @@ const SettingsScreen = ({ navigation }) => {
     AsyncStorage.setItem('brainbites_sounds_enabled', value.toString());
   };
   
+  const handleToggleStrictMode = async (value) => {
+    // If turning on strict mode, check if accessibility service is enabled
+    if (value && Platform.OS === 'android' && !accessibilityServiceEnabled) {
+      // Navigate to the setup screen
+      navigation.navigate('AccessibilitySetup', { returnToScreen: 'Settings' });
+      return;
+    }
+    
+    setStrictModeEnabled(value);
+    AsyncStorage.setItem('brainbites_strict_mode', value.toString());
+    
+    // Update strict mode in the native module
+    if (Platform.OS === 'android') {
+      await StrictModeService.setStrictModeEnabled(value);
+    }
+  };
+  
   const handleAddTestTime = () => {
     // Add 5 minutes (300 seconds) for testing
     TimerService.addTimeCredits(300);
-    alert('Added 5 minutes of test time');
+    Alert.alert('Added 5 minutes of test time');
+  };
+  
+  const handleManageMonitoredApps = () => {
+    // Navigate to a screen to manage monitored apps (not implemented in this phase)
+    Alert.alert('Not Implemented', 'This feature will be available in a future update.');
+    // In a real implementation, you'd navigate to a screen like:
+    // navigation.navigate('MonitoredApps');
   };
   
   return (
@@ -184,6 +284,40 @@ const SettingsScreen = ({ navigation }) => {
               thumbColor={soundsEnabled ? '#fff' : '#fff'}
             />
           </View>
+          
+          {Platform.OS === 'android' && (
+            <View style={styles.settingItem}>
+              <View>
+                <Text style={styles.settingLabel}>Strict Mode</Text>
+                <Text style={styles.settingDescription}>
+                  Automatically enforce app time limits (Android only)
+                </Text>
+                {!accessibilityServiceEnabled && strictModeEnabled && (
+                  <View style={styles.warningBadge}>
+                    <Text style={styles.warningText}>
+                      Accessibility service not enabled
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Switch
+                value={strictModeEnabled}
+                onValueChange={handleToggleStrictMode}
+                trackColor={{ false: '#e0e0e0', true: '#FF9F1C' }}
+                thumbColor={strictModeEnabled ? '#fff' : '#fff'}
+              />
+            </View>
+          )}
+          
+          {Platform.OS === 'android' && strictModeEnabled && (
+            <TouchableOpacity 
+              style={styles.subButton}
+              onPress={handleManageMonitoredApps}
+            >
+              <Text style={styles.subButtonText}>Manage Monitored Apps</Text>
+              <Icon name="chevron-right" size={20} color="#666" />
+            </TouchableOpacity>
+          )}
         </View>
         
         <View style={styles.section}>
@@ -294,6 +428,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FF9F1C',
     fontWeight: 'bold',
+  },
+  warningBadge: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    marginTop: 4,
+  },
+  warningText: {
+    fontSize: 12,
+    color: '#856404',
+  },
+  subButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  subButtonText: {
+    fontSize: 15,
+    color: '#666',
   },
   dangerButton: {
     backgroundColor: '#F44336',
